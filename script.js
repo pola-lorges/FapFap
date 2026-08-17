@@ -180,32 +180,32 @@ function formatSignedMoney(value) {
   return value < 0 ? `−${amount}` : value > 0 ? `+${amount}` : amount;
 }
 
-function updatePlayerGains(winnerIndex, payout, opponentCount) {
-  if (winnerIndex === 0) {
-    playerGains[0] += payout;
-    const perOpponentLoss = Math.abs(payout) / opponentCount;
-    [1, 2, 3].forEach((index) => {
-      playerGains[index] -= perOpponentLoss;
-    });
-    return;
-  }
-
-  playerGains[0] += payout;
-  playerGains[winnerIndex] += Math.abs(payout);
+function updatePlayerGains(winnerIndex, stake, winMultiplier, lossMultiplier, opponentCount) {
+  const winAmount = stake * winMultiplier * opponentCount;
+  const lossAmount = stake * lossMultiplier;
+  PLAYERS.forEach((_, index) => {
+    if (index === winnerIndex) {
+      playerGains[index] += winAmount;
+    } else {
+      playerGains[index] -= lossAmount;
+    }
+  });
 }
 
 function showResult() {
   const last = state.history[4];
   const previous = state.history[3];
   const autoWin = state.autoWin;
-  const multiplier = autoWin ? 1 : last.card.rank === 3 && previous.card.rank === 3 ? 4 : last.card.rank === 3 ? 2 : 1;
+  const winnerIndex = autoWin ? 0 : last.playerIndex;
+  const wonByThree = !autoWin && last.card.rank === 3;
+  const multiplier = autoWin ? 1 : wonByThree && previous.card.rank === 3 ? 4 : wonByThree ? 2 : 1;
+  const lossMultiplier = wonByThree ? 2 : 1;
   const opponentCount = PLAYERS.length - 1;
   const stake = Math.max(0, Number($('#stake').value) || 0);
-  const won = autoWin || last.playerIndex === 0;
-  const lossMultiplier = !won && last.card.rank === 3 ? 2 : 1;
+  const won = winnerIndex === 0;
   const payout = won ? stake * multiplier * opponentCount : -stake * lossMultiplier;
   cumulativeGain += payout;
-  updatePlayerGains(last.playerIndex, payout, opponentCount);
+  updatePlayerGains(winnerIndex, stake, multiplier, lossMultiplier, opponentCount);
   $('#result-title').textContent = autoWin ? 'Annonce réussie : vous gagnez' : last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${PLAYERS[last.playerIndex]} prend le dernier pli`;
   $('#result-copy').textContent = autoWin ? `Victoire automatique : votre main totalise ${handValue(0)} points, soit 21 ou moins. Gain multiplié par ${opponentCount} adversaires.` : `${won ? 'Victoire' : 'Défaite'} : le ${cardLabel(last.card)} ferme la manche. ${last.card.rank === 3 ? (won ? `Le 3 active un multiplicateur ×${multiplier}.` : 'Le 3 double la perte.') : 'Le multiplicateur reste à ×1.'}${won ? ` Gain multiplié par ${opponentCount} adversaires.` : ''}`;
   $('#payout-value').textContent = formatSignedMoney(payout);
