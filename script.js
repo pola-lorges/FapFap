@@ -9,6 +9,7 @@ const PLAYERS = ['Vous', 'Brice', 'Clarisse', 'Dieudonné'];
 
 let state;
 let cumulativeGain = 0;
+let playerGains = [0, 0, 0, 0];
 
 const $ = (selector) => document.querySelector(selector);
 const formatMoney = (value) => `${Number(value).toLocaleString('fr-FR')} FCFA`;
@@ -153,7 +154,11 @@ function renderTrick() {
 
 function renderScore() {
   $('#leader-name').textContent = PLAYERS[state.leader];
-  $('#score-list').innerHTML = PLAYERS.map((name, index) => `<div class="score-row ${state.turn === index ? 'active' : ''}"><span>${name}</span><b>${state.history.filter((item) => item.playerIndex === index).length}</b></div>`).join('');
+  $('#score-list').innerHTML = PLAYERS.map((name, index) => {
+    const trickCount = state.history.filter((item) => item.playerIndex === index).length;
+    const gain = playerGains[index];
+    return `<div class="score-row ${state.turn === index ? 'active' : ''}"><span>${name}</span><div class="score-metrics"><b>${trickCount}</b><small class="${gain < 0 ? 'negative' : ''}">${formatSignedMoney(gain)}</small></div></div>`;
+  }).join('');
   const history = $('#history-list');
   history.innerHTML = state.history.length ? state.history.map((item, index) => `<div class="history-item"><span>Pli ${index + 1} · ${PLAYERS[item.playerIndex]}</span><b>${cardLabel(item.card)}</b></div>`).join('') : '<p class="empty-state">Les plis joués apparaîtront ici.</p>';
 }
@@ -175,6 +180,20 @@ function formatSignedMoney(value) {
   return value < 0 ? `−${amount}` : value > 0 ? `+${amount}` : amount;
 }
 
+function updatePlayerGains(winnerIndex, payout, opponentCount) {
+  if (winnerIndex === 0) {
+    playerGains[0] += payout;
+    const perOpponentLoss = Math.abs(payout) / opponentCount;
+    [1, 2, 3].forEach((index) => {
+      playerGains[index] -= perOpponentLoss;
+    });
+    return;
+  }
+
+  playerGains[0] += payout;
+  playerGains[winnerIndex] += Math.abs(payout);
+}
+
 function showResult() {
   const last = state.history[4];
   const previous = state.history[3];
@@ -186,6 +205,7 @@ function showResult() {
   const lossMultiplier = !won && last.card.rank === 3 ? 2 : 1;
   const payout = won ? stake * multiplier * opponentCount : -stake * lossMultiplier;
   cumulativeGain += payout;
+  updatePlayerGains(last.playerIndex, payout, opponentCount);
   $('#result-title').textContent = autoWin ? 'Annonce réussie : vous gagnez' : last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${PLAYERS[last.playerIndex]} prend le dernier pli`;
   $('#result-copy').textContent = autoWin ? `Victoire automatique : votre main totalise ${handValue(0)} points, soit 21 ou moins. Gain multiplié par ${opponentCount} adversaires.` : `${won ? 'Victoire' : 'Défaite'} : le ${cardLabel(last.card)} ferme la manche. ${last.card.rank === 3 ? (won ? `Le 3 active un multiplicateur ×${multiplier}.` : 'Le 3 double la perte.') : 'Le multiplicateur reste à ×1.'}${won ? ` Gain multiplié par ${opponentCount} adversaires.` : ''}`;
   $('#payout-value').textContent = formatSignedMoney(payout);
