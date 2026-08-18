@@ -86,11 +86,35 @@ function playCard(playerIndex, cardId) {
 
 function chooseComputerCard(playerIndex) {
   const options = legalCards(playerIndex);
-  const lastTrick = state.history.length === 4;
-  if (lastTrick) return options.find((card) => card.rank === 3) || options[options.length - 1];
-  const threes = options.filter((card) => card.rank === 3);
-  if (threes.length && Math.random() < 0.75) return options.find((card) => card.rank !== 3) || threes[0];
-  return options[Math.floor(Math.random() * options.length)];
+  if (!options.length) return null;
+
+  if (!state.trick.length) {
+    const strongOpeners = options.filter((card) => card.rank >= 8 || card.rank === 7);
+    return (strongOpeners.length ? strongOpeners : options).reduce((best, card) => (
+      cardStrength(card) < cardStrength(best) ? card : best
+    ), strongOpeners.length ? strongOpeners[0] : options[0]);
+  }
+
+  const leadSuit = state.trick[0].card.suit.symbol;
+  const currentWinner = winnerOf(state.trick);
+  const winningCards = options.filter((card) => card.suit.symbol === leadSuit && cardStrength(card) < cardStrength(currentWinner.card));
+
+  if (winningCards.length) {
+    return winningCards.reduce((best, card) => (
+      cardStrength(card) < cardStrength(best) ? card : best
+    ), winningCards[0]);
+  }
+
+  const sameSuitCards = options.filter((card) => card.suit.symbol === leadSuit);
+  if (sameSuitCards.length) {
+    return sameSuitCards.reduce((worst, card) => (
+      cardStrength(card) > cardStrength(worst) ? card : worst
+    ), sameSuitCards[0]);
+  }
+
+  return options.reduce((worst, card) => (
+    cardStrength(card) > cardStrength(worst) ? card : worst
+  ), options[0]);
 }
 
 function playComputerTurn() {
