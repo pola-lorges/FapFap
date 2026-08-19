@@ -40,7 +40,8 @@ function startGame() {
     history: [],
     round: 1,
     finished: false,
-    autoWin: false
+    autoWin: false,
+    autoWinWinnerIndex: null
   };
   $('#result-modal').classList.add('hidden');
   render();
@@ -65,6 +66,20 @@ function handValue(playerIndex) {
 
 function canClaimUnder21() {
   return state.hands.every((hand) => hand.length === 5) && handValue(0) <= 21;
+}
+
+function hasThreeSevens(playerIndex) {
+  const sevens = state.hands[playerIndex].filter((card) => card.rank === 7);
+  return sevens.length === 3 && new Set(sevens.map((card) => card.suit.symbol)).size === 3;
+}
+
+function canAutoWinWithThreeSevens() {
+  return state.turn === 0 && hasThreeSevens(0);
+}
+
+function findThreeSevenWinner() {
+  const winnerIndex = state.hands.findIndex((_, index) => hasThreeSevens(index));
+  return winnerIndex >= 0 ? winnerIndex : null;
 }
 
 function winnerOf(trick) {
@@ -156,9 +171,13 @@ function renderHand() {
   const total = handValue(0);
   $('#hand-count').textContent = `${state.hands[0].length} carte${state.hands[0].length > 1 ? 's' : ''} · total ${total}`;
   const claimButton = $('#claim-21');
+  const autoWinButton = $('#auto-win');
   const canClaim = canClaimUnder21();
+  const canAutoWin = canAutoWinWithThreeSevens();
   claimButton.disabled = state.finished || !canClaim;
   claimButton.title = canClaim ? `Votre main vaut ${total} points` : 'L’annonce ≤ 21 n’est possible que si chaque joueur a 5 cartes en main.';
+  autoWinButton.disabled = state.finished || !canAutoWin;
+  autoWinButton.title = canAutoWin ? '3 cartes 7 différentes : victoire automatique' : 'Il faut avoir exactement 3 cartes 7 de couleurs différentes dans votre main.';
 }
 
 function renderOpponents() {
@@ -225,18 +244,27 @@ function showResult() {
   const last = state.history[4];
   const previous = state.history[3];
   const autoWin = state.autoWin;
-  const winnerIndex = autoWin ? 0 : last.playerIndex;
+  const winnerIndex = autoWin ? state.autoWinWinnerIndex ?? 0 : last.playerIndex;
   const wonByThree = !autoWin && last.card.rank === 3;
   const multiplier = autoWin ? 1 : wonByThree && previous.card.rank === 3 ? 4 : wonByThree ? 2 : 1;
   const lossMultiplier = wonByThree ? 2 : 1;
   const opponentCount = PLAYERS.length - 1;
   const stake = Math.max(0, Number($('#stake').value) || 0);
   const won = winnerIndex === 0;
-  const payout = won ? stake * multiplier * opponentCount : -stake * lossMultiplier;
+  const payout = autoWin
+    ? (won ? stake * opponentCount : -stake)
+    : (won ? stake * multiplier * opponentCount : -stake * lossMultiplier);
   cumulativeGain += payout;
   updatePlayerGains(winnerIndex, stake, multiplier, lossMultiplier, opponentCount);
-  $('#result-title').textContent = autoWin ? 'Annonce réussie : vous gagnez' : last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${PLAYERS[last.playerIndex]} prend le dernier pli`;
-  $('#result-copy').textContent = autoWin ? `Victoire automatique : votre main totalise ${handValue(0)} points, soit 21 ou moins. Gain multiplié par ${opponentCount} adversaires.` : `${won ? 'Victoire' : 'Défaite'} : le ${cardLabel(last.card)} ferme la manche. ${last.card.rank === 3 ? (won ? `Le 3 active un multiplicateur ×${multiplier}.` : 'Le 3 double la perte.') : 'Le multiplicateur reste à ×1.'}${won ? ` Gain multiplié par ${opponentCount} adversaires.` : ''}`;
+
+  if (autoWin) {
+    $('#result-title').textContent = `${PLAYERS[winnerIndex]} a 3 cartes 7 et gagne automatiquement`;
+    $('#result-copy').textContent = `${PLAYERS[winnerIndex]} possède 3 cartes 7 dans sa main. C’est une victoire automatique.`;
+  } else {
+    $('#result-title').textContent = last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${PLAYERS[last.playerIndex]} prend le dernier pli`;
+    $('#result-copy').textContent = `${won ? 'Victoire' : 'Défaite'} : le ${cardLabel(last.card)} ferme la manche. ${last.card.rank === 3 ? (won ? `Le 3 active un multiplicateur ×${multiplier}.` : 'Le 3 double la perte.') : 'Le multiplicateur reste à ×1.'}${won ? ` Gain multiplié par ${opponentCount} adversaires.` : ''}`;
+  }
+
   $('#payout-value').textContent = formatSignedMoney(payout);
   $('#payout-value').classList.toggle('negative', payout < 0);
   $('#result-total').textContent = formatSignedMoney(cumulativeGain);
@@ -250,6 +278,16 @@ function claimUnder21() {
   if (state.finished || !canClaimUnder21()) return;
   state.finished = true;
   state.autoWin = true;
+  state.autoWinWinnerIndex = 0;
+  render();
+  showResult();
+}
+
+function claimAutomaticWin() {
+  if (state.finished || !canAutoWinWithThreeSevens()) return;
+  state.finished = true;
+  state.autoWin = true;
+  state.autoWinWinnerIndex = 0;
   render();
   showResult();
 }
@@ -257,4 +295,5 @@ function claimUnder21() {
 $('#new-game').addEventListener('click', startGame);
 $('#play-again').addEventListener('click', startGame);
 $('#claim-21').addEventListener('click', claimUnder21);
+$('#auto-win').addEventListener('click', claimAutomaticWin);
 startGame();
