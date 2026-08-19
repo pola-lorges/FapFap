@@ -63,6 +63,10 @@ function handValue(playerIndex) {
   return state.hands[playerIndex].reduce((total, card) => total + card.rank, 0);
 }
 
+function canClaimUnder21() {
+  return state.hands.every((hand) => hand.length === 5) && handValue(0) <= 21;
+}
+
 function winnerOf(trick) {
   const leadSuit = trick[0].card.suit.symbol;
   const eligible = trick.filter((play) => play.card.suit.symbol === leadSuit);
@@ -152,8 +156,9 @@ function renderHand() {
   const total = handValue(0);
   $('#hand-count').textContent = `${state.hands[0].length} carte${state.hands[0].length > 1 ? 's' : ''} · total ${total}`;
   const claimButton = $('#claim-21');
-  claimButton.disabled = state.finished || total > 21;
-  claimButton.title = total <= 21 ? `Votre main vaut ${total} points` : `Votre main vaut ${total} points`;
+  const canClaim = canClaimUnder21();
+  claimButton.disabled = state.finished || !canClaim;
+  claimButton.title = canClaim ? `Votre main vaut ${total} points` : 'L’annonce ≤ 21 n’est possible que si chaque joueur a 5 cartes en main.';
 }
 
 function renderOpponents() {
@@ -242,7 +247,7 @@ function showResult() {
 }
 
 function claimUnder21() {
-  if (state.finished || handValue(0) > 21) return;
+  if (state.finished || !canClaimUnder21()) return;
   state.finished = true;
   state.autoWin = true;
   render();
