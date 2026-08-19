@@ -41,7 +41,8 @@ function startGame() {
     round: 1,
     finished: false,
     autoWin: false,
-    autoWinWinnerIndex: null
+    autoWinWinnerIndex: null,
+    showBestCard: false
   };
   $('#result-modal').classList.add('hidden');
   render();
@@ -64,8 +65,12 @@ function handValue(playerIndex) {
   return state.hands[playerIndex].reduce((total, card) => total + card.rank, 0);
 }
 
+function playerHas21OrLess() {
+  return handValue(0) <= 21;
+}
+
 function canClaimUnder21() {
-  return state.hands.every((hand) => hand.length === 5) && handValue(0) <= 21;
+  return state.hands.every((hand) => hand.length === 5) && playerHas21OrLess();
 }
 
 function hasThreeSevens(playerIndex) {
@@ -75,6 +80,99 @@ function hasThreeSevens(playerIndex) {
 
 function canAutoWinWithThreeSevens() {
   return state.turn === 0 && hasThreeSevens(0);
+}
+
+function playedCards() {
+  return state.history.flatMap((item) => item.trick).concat(state.trick);
+}
+
+function remainingCardsForSuit(suitSymbol) {
+  const playedIds = new Set(playedCards().map((play) => play.card.id));
+  return createDeck().filter((card) => card.suit.symbol === suitSymbol && !playedIds.has(card.id));
+}
+
+function winningCardsForCurrentTrick(options) {
+  if (!state.trick.length) return [];
+  const currentWinner = winnerOf(state.trick);
+  const leadSuit = state.trick[0].card.suit.symbol;
+  return options.filter((card) => (
+    card.suit.symbol === leadSuit && cardStrength(card) < cardStrength(currentWinner.card)
+  ));
+}
+
+function phaseCardPriority(card) {
+  const firstPlies = state.history.length < 3;
+  const lastPlies = state.history.length >= 3;
+  if (firstPlies && [4, 5, 6].includes(card.rank)) return 4;
+  if (firstPlies && [8, 9, 10].includes(card.rank)) return -3;
+  if (lastPlies && [8, 9, 10].includes(card.rank)) return 4;
+  if (lastPlies && [4, 5, 6].includes(card.rank)) return -2;
+  return card.rank === 7 ? 1 : 0;
+}
+
+function chooseByPhase(cards, preferStrongest) {
+  return cards.reduce((best, card) => {
+    const cardPriority = phaseCardPriority(card);
+    const bestPriority = phaseCardPriority(best);
+    if (cardPriority !== bestPriority) return cardPriority > bestPriority ? card : best;
+    const cardStrengthValue = cardStrength(card);
+    const bestStrengthValue = cardStrength(best);
+    return preferStrongest
+      ? (cardStrengthValue < bestStrengthValue ? card : best)
+      : (cardStrengthValue > bestStrengthValue ? card : best);
+  }, cards[0]);
+}
+
+function strategicCardScore(card, playerIndex, winningCards) {
+  const hand = state.hands[playerIndex];
+  const sameSuit = hand.filter((item) => item.suit.symbol === card.suit.symbol);
+  const remainingSuit = remainingCardsForSuit(card.suit.symbol);
+  const higherUnseen = remainingSuit.filter((item) => cardStrength(item) < cardStrength(card));
+  const higherPlayed = RANKS.slice(0, cardStrength(card)).filter((rank) => (
+    playedCards().some((play) => play.card.suit.symbol === card.suit.symbol && play.card.rank === rank)
+  )).length;
+  const masterPotential = higherUnseen.length === 0 ? 1 : Math.max(0, 1 - higherUnseen.length / 7);
+  const suitControl = sameSuit.length / 5;
+  const cardsPlayedAbove = higherPlayed / Math.max(1, cardStrength(card));
+  const sevenControl = card.rank === 7 ? 1 : (higherPlayed > 0 ? 0.5 : 0);
+  const threePotential = card.rank === 3 ? (masterPotential * 0.8) : 0;
+  const lastTrickBonus = state.history.length === 4 ? masterPotential * 2 : 0;
+  const isWinning = winningCards.some((item) => item.id === card.id);
+  const immediateWin = isWinning ? 100 : winningCards.length ? -30 : 0;
+  const wastePenalty = isWinning ? cardStrength(card) * 2 : 0;
+
+  return immediateWin
+    + phaseCardPriority(card) * 12
+    + masterPotential * 30
+    + card.rank / 10 * 20
+    + suitControl * 15
+    + cardsPlayedAbove * 10
+    + sevenControl * 5
+    + threePotential * 5
+    + lastTrickBonus
+    - wastePenalty;
+}
+
+function bestCardToPlay(playerIndex) {
+  const options = legalCards(playerIndex);
+  if (!options.length) return null;
+  const winningCards = winningCardsForCurrentTrick(options);
+  if (winningCards.length) {
+    return chooseByPhase(winningCards, true);
+  }
+
+  if (state.trick.length) {
+    const firstPlies = state.history.length < 3;
+    const discardOptions = firstPlies
+      ? options.filter((card) => [4, 5, 6].includes(card.rank))
+      : options.filter((card) => ![8, 9, 10].includes(card.rank));
+    return chooseByPhase(discardOptions.length ? discardOptions : options, false);
+  }
+
+  const openingOptions = options.filter((card) => (
+    state.history.length < 3 ? [4, 5, 6].includes(card.rank) : [8, 9, 10].includes(card.rank)
+  ));
+  return chooseByPhase(openingOptions.length ? openingOptions : options, true);
 }
 
 function findThreeSevenWinner() {
@@ -104,36 +202,7 @@ function playCard(playerIndex, cardId) {
 }
 
 function chooseComputerCard(playerIndex) {
-  const options = legalCards(playerIndex);
-  if (!options.length) return null;
-
-  if (!state.trick.length) {
-    const strongOpeners = options.filter((card) => card.rank >= 8 || card.rank === 7);
-    return (strongOpeners.length ? strongOpeners : options).reduce((best, card) => (
-      cardStrength(card) < cardStrength(best) ? card : best
-    ), strongOpeners.length ? strongOpeners[0] : options[0]);
-  }
-
-  const leadSuit = state.trick[0].card.suit.symbol;
-  const currentWinner = winnerOf(state.trick);
-  const winningCards = options.filter((card) => card.suit.symbol === leadSuit && cardStrength(card) < cardStrength(currentWinner.card));
-
-  if (winningCards.length) {
-    return winningCards.reduce((best, card) => (
-      cardStrength(card) < cardStrength(best) ? card : best
-    ), winningCards[0]);
-  }
-
-  const sameSuitCards = options.filter((card) => card.suit.symbol === leadSuit);
-  if (sameSuitCards.length) {
-    return sameSuitCards.reduce((worst, card) => (
-      cardStrength(card) > cardStrength(worst) ? card : worst
-    ), sameSuitCards[0]);
-  }
-
-  return options.reduce((worst, card) => (
-    cardStrength(card) > cardStrength(worst) ? card : worst
-  ), options[0]);
+  return bestCardToPlay(playerIndex);
 }
 
 function playComputerTurn() {
@@ -165,8 +234,10 @@ function cardMarkup(card, played = false) {
 
 function renderHand() {
   const hand = $('#player-hand');
-  const legal = legalCards(0).map((card) => card.id);
-  hand.innerHTML = state.hands[0].map((card) => `<button type="button" class="playing-card ${card.color} ${legal.includes(card.id) ? '' : 'illegal'}" data-card-id="${card.id}" ${state.turn !== 0 || !legal.includes(card.id) || state.finished ? 'disabled' : ''}><span class="rank">${card.rank}</span><span class="label">${card.suit.name}</span><span class="suit">${card.suit.symbol}</span></button>`).join('');
+  const legalCardsForPlayer = legalCards(0);
+  const legal = legalCardsForPlayer.map((card) => card.id);
+  const bestCard = state.showBestCard && state.turn === 0 && !state.finished ? bestCardToPlay(0) : null;
+  hand.innerHTML = state.hands[0].map((card) => `<button type="button" class="playing-card ${card.color} ${legal.includes(card.id) ? '' : 'illegal'} ${bestCard?.id === card.id ? 'best-play' : ''}" data-card-id="${card.id}" title="${bestCard?.id === card.id ? 'Meilleure carte à jouer' : ''}" ${state.turn !== 0 || !legal.includes(card.id) || state.finished ? 'disabled' : ''}><span class="rank">${card.rank}</span><span class="label">${card.suit.name}</span><span class="suit">${card.suit.symbol}</span></button>`).join('');
   hand.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => playCard(0, button.dataset.cardId)));
   const total = handValue(0);
   $('#hand-count').textContent = `${state.hands[0].length} carte${state.hands[0].length > 1 ? 's' : ''} · total ${total}`;
@@ -275,7 +346,7 @@ function showResult() {
 }
 
 function claimUnder21() {
-  if (state.finished || !canClaimUnder21()) return;
+  if (state.finished || !canClaimUnder21() || !playerHas21OrLess()) return;
   state.finished = true;
   state.autoWin = true;
   state.autoWinWinnerIndex = 0;
@@ -296,4 +367,20 @@ $('#new-game').addEventListener('click', startGame);
 $('#play-again').addEventListener('click', startGame);
 $('#claim-21').addEventListener('click', claimUnder21);
 $('#auto-win').addEventListener('click', claimAutomaticWin);
+const bestCardTrigger = $('#best-card-trigger');
+const toggleBestCard = () => {
+  state.showBestCard = !state.showBestCard;
+  render();
+};
+bestCardTrigger.addEventListener('dblclick', toggleBestCard);
+let lastTitleTap = 0;
+bestCardTrigger.addEventListener('touchend', () => {
+  const now = Date.now();
+  if (now - lastTitleTap < 350) {
+    toggleBestCard();
+    lastTitleTap = 0;
+    return;
+  }
+  lastTitleTap = now;
+});
 startGame();
