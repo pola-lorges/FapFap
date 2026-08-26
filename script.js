@@ -66,7 +66,10 @@ function handValue(playerIndex) {
 }
 
 function playerHas21OrLess() {
-  return handValue(0) <= 21;
+  if(handValue(0) > 21) return false;
+  if(handValue(0) === 21) return true;
+  if(handValue(0) < 21) return true;
+  return false;
 }
 
 function canClaimUnder21() {
