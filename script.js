@@ -30,10 +30,15 @@ function shuffle(cards) {
 
 function startGame() {
   const deck = shuffle(createDeck());
+  const playerCount = Math.min(4, Math.max(2, Number($('#player-count').value) || 4));
+  const players = PLAYERS.slice(0, playerCount);
   const previousWinner = state?.history?.[4]?.playerIndex;
-  const nextLeader = previousWinner === undefined ? 0 : (previousWinner - 1 + PLAYERS.length) % PLAYERS.length;
+  const nextLeader = previousWinner === undefined || previousWinner >= playerCount
+    ? 0
+    : (previousWinner - 1 + playerCount) % playerCount;
   state = {
-    hands: [deck.slice(0, 5), deck.slice(5, 10), deck.slice(10, 15), deck.slice(15, 20)],
+    players,
+    hands: Array.from({ length: playerCount }, (_, index) => deck.slice(index * 5, index * 5 + 5)),
     leader: nextLeader,
     turn: nextLeader,
     trick: [],
@@ -44,6 +49,8 @@ function startGame() {
     autoWinWinnerIndex: null,
     showBestCard: false
   };
+  playerGains = Array.from({ length: playerCount }, (_, index) => playerGains[index] ?? 0);
+  $('#game-mode').textContent = `Jeu de plis · ${playerCount} joueurs`;
   $('#result-modal').classList.add('hidden');
   render();
   if (state.turn !== 0) playComputerTurn();
@@ -195,9 +202,9 @@ function playCard(playerIndex, cardId) {
   if (cardIndex < 0 || !legalCards(playerIndex).some((card) => card.id === cardId)) return;
   const [card] = state.hands[playerIndex].splice(cardIndex, 1);
   state.trick.push({ playerIndex, card });
-  state.turn = (state.turn + 1) % 4;
+  state.turn = (state.turn + 1) % state.players.length;
   render();
-  if (state.trick.length === 4) {
+  if (state.trick.length === state.players.length) {
     window.setTimeout(resolveTrick, 700);
   } else if (state.turn !== 0) {
     window.setTimeout(playComputerTurn, 500);
@@ -209,7 +216,7 @@ function chooseComputerCard(playerIndex) {
 }
 
 function playComputerTurn() {
-  if (state.finished || state.turn === 0 || state.trick.length === 4) return;
+  if (state.finished || state.turn === 0 || state.trick.length === state.players.length) return;
   const card = chooseComputerCard(state.turn);
   playCard(state.turn, card.id);
 }
@@ -257,6 +264,9 @@ function renderHand() {
 function renderOpponents() {
   [1, 2, 3].forEach((playerIndex) => {
     const opponent = $(`#opponent-${playerIndex}`);
+    opponent.hidden = playerIndex >= state.players.length;
+    if (opponent.hidden) return;
+    opponent.querySelector('strong').textContent = state.players[playerIndex];
     const count = state.hands[playerIndex].length;
     opponent.querySelector('small').textContent = `${count} carte${count > 1 ? 's' : ''}`;
     const backHolder = opponent.querySelector('.back-row, .back-column');
@@ -271,18 +281,18 @@ function renderTrick() {
     trickZone.innerHTML = '<div class="table-message">Le premier à jouer choisit la couleur.</div>';
     return;
   }
-  trickZone.innerHTML = visibleTrick.map((play) => `<div title="${PLAYERS[play.playerIndex]} : ${cardLabel(play.card)}">${cardMarkup(play.card, true)}</div>`).join('');
+  trickZone.innerHTML = visibleTrick.map((play) => `<div title="${state.players[play.playerIndex]} : ${cardLabel(play.card)}">${cardMarkup(play.card, true)}</div>`).join('');
 }
 
 function renderScore() {
-  $('#leader-name').textContent = PLAYERS[state.leader];
-  $('#score-list').innerHTML = PLAYERS.map((name, index) => {
+  $('#leader-name').textContent = state.players[state.leader];
+  $('#score-list').innerHTML = state.players.map((name, index) => {
     const trickCount = state.history.filter((item) => item.playerIndex === index).length;
     const gain = playerGains[index];
     return `<div class="score-row ${state.turn === index ? 'active' : ''}"><span>${name}</span><div class="score-metrics"><b>${trickCount}</b><small class="${gain < 0 ? 'negative' : ''}">${formatSignedMoney(gain)}</small></div></div>`;
   }).join('');
   const history = $('#history-list');
-  history.innerHTML = state.history.length ? state.history.map((item, index) => `<div class="history-item"><span>Pli ${index + 1} · ${PLAYERS[item.playerIndex]}</span><b>${cardLabel(item.card)}</b></div>`).join('') : '<p class="empty-state">Les plis joués apparaîtront ici.</p>';
+  history.innerHTML = state.history.length ? state.history.map((item, index) => `<div class="history-item"><span>Pli ${index + 1} · ${state.players[item.playerIndex]}</span><b>${cardLabel(item.card)}</b></div>`).join('') : '<p class="empty-state">Les plis joués apparaîtront ici.</p>';
 }
 
 function render() {
@@ -291,7 +301,7 @@ function render() {
   renderTrick();
   renderScore();
   const isPlayerTurn = state.turn === 0;
-  $('#status-text').textContent = state.finished ? 'Manche terminée' : (isPlayerTurn ? 'À vous de jouer' : `${PLAYERS[state.turn]} joue`);
+  $('#status-text').textContent = state.finished ? 'Manche terminée' : (isPlayerTurn ? 'À vous de jouer' : `${state.players[state.turn]} joue`);
   $('#hint-text').textContent = state.finished ? 'Résultat de la manche' : (isPlayerTurn ? (state.trick.length ? `Suivez ${state.trick[0].card.suit.symbol} si possible` : 'Choisissez une carte') : 'Les adversaires réfléchissent…');
   $('#cumulative-gain').textContent = formatSignedMoney(cumulativeGain);
   $('#cumulative-gain').classList.toggle('negative', cumulativeGain < 0);
@@ -305,7 +315,7 @@ function formatSignedMoney(value) {
 function updatePlayerGains(winnerIndex, stake, winMultiplier, lossMultiplier, opponentCount) {
   const winAmount = stake * winMultiplier * opponentCount;
   const lossAmount = stake * lossMultiplier;
-  PLAYERS.forEach((_, index) => {
+  state.players.forEach((_, index) => {
     if (index === winnerIndex) {
       playerGains[index] += winAmount;
     } else {
@@ -315,14 +325,14 @@ function updatePlayerGains(winnerIndex, stake, winMultiplier, lossMultiplier, op
 }
 
 function showResult() {
-  const last = state.history[4];
-  const previous = state.history[3];
+  const last = state.history.at(-1);
+  const previous = state.history.at(-2);
   const autoWin = state.autoWin;
   const winnerIndex = autoWin ? state.autoWinWinnerIndex ?? 0 : last.playerIndex;
   const wonByThree = !autoWin && last.card.rank === 3;
-  const multiplier = autoWin ? 1 : wonByThree && previous.card.rank === 3 ? 4 : wonByThree ? 2 : 1;
+  const multiplier = autoWin ? 1 : wonByThree && previous?.card.rank === 3 ? 4 : wonByThree ? 2 : 1;
   const lossMultiplier = wonByThree ? 2 : 1;
-  const opponentCount = PLAYERS.length - 1;
+  const opponentCount = state.players.length - 1;
   const stake = Math.max(0, Number($('#stake').value) || 0);
   const won = winnerIndex === 0;
   const payout = autoWin
@@ -332,10 +342,12 @@ function showResult() {
   updatePlayerGains(winnerIndex, stake, multiplier, lossMultiplier, opponentCount);
 
   if (autoWin) {
-    $('#result-title').textContent = `${PLAYERS[winnerIndex]} a 3 cartes 7 et gagne automatiquement`;
-    $('#result-copy').textContent = `${PLAYERS[winnerIndex]} possède 3 cartes 7 dans sa main. C’est une victoire automatique.`;
+    $('#result-title').textContent = `${state.players[winnerIndex]} gagne automatiquement`;
+    $('#result-copy').textContent = state.autoWinWinnerIndex === 0
+      ? 'Vous remportez la manche automatiquement.'
+      : `${state.players[winnerIndex]} possède 3 cartes 7 dans sa main. C’est une victoire automatique.`;
   } else {
-    $('#result-title').textContent = last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${PLAYERS[last.playerIndex]} prend le dernier pli`;
+    $('#result-title').textContent = last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${state.players[last.playerIndex]} prend le dernier pli`;
     $('#result-copy').textContent = `${won ? 'Victoire' : 'Défaite'} : le ${cardLabel(last.card)} ferme la manche. ${last.card.rank === 3 ? (won ? `Le 3 active un multiplicateur ×${multiplier}.` : 'Le 3 double la perte.') : 'Le multiplicateur reste à ×1.'}${won ? ` Gain multiplié par ${opponentCount} adversaires.` : ''}`;
   }
 

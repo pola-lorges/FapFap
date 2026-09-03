@@ -16,7 +16,7 @@
       <div class="brand-lockup">
         <div class="brand-mark" aria-hidden="true">♠</div>
         <div>
-          <p class="eyebrow">Jeu de plis · 4 joueurs</p>
+          <p class="eyebrow" id="game-mode">Jeu de plis · 4 joueurs</p>
           <h1>Fap <span>Fap</span></h1>
         </div>
       </div>
@@ -25,6 +25,10 @@
         <label class="stake-control" for="stake">
           <span>Mise</span>
           <div><input id="stake" type="number" min="100" step="100" value="1000"><b>FCFA</b></div>
+        </label>
+        <label class="stake-control" for="player-count">
+          <span>Joueurs</span>
+          <div><select id="player-count"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option></select><b>joueurs</b></div>
         </label>
         <button class="new-game-button" id="new-game" type="button"><span aria-hidden="true">↻</span> Nouvelle manche</button>
       </div>
