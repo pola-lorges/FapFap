@@ -73,7 +73,7 @@ function playerHas21OrLess() {
 }
 
 function canClaimUnder21() {
-  return state.hands.every((hand) => hand.length === 5) && playerHas21OrLess();
+  return state.hands[0].length === 5 && playerHas21OrLess();
 }
 
 function hasThreeSevens(playerIndex) {
