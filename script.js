@@ -47,7 +47,6 @@ function startGame() {
     finished: false,
     autoWin: false,
     autoWinWinnerIndex: null,
-    showBestCard: false
   };
   playerGains = Array.from({ length: playerCount }, (_, index) => playerGains[index] ?? 0);
   $('#game-mode').textContent = `Jeu de plis · ${playerCount} joueurs`;
@@ -246,8 +245,7 @@ function renderHand() {
   const hand = $('#player-hand');
   const legalCardsForPlayer = legalCards(0);
   const legal = legalCardsForPlayer.map((card) => card.id);
-  const bestCard = state.showBestCard && state.turn === 0 && !state.finished ? bestCardToPlay(0) : null;
-  hand.innerHTML = state.hands[0].map((card) => `<button type="button" class="playing-card ${card.color} ${legal.includes(card.id) ? '' : 'illegal'} ${bestCard?.id === card.id ? 'best-play' : ''}" data-card-id="${card.id}" title="${bestCard?.id === card.id ? 'Meilleure carte à jouer' : ''}" ${state.turn !== 0 || !legal.includes(card.id) || state.finished ? 'disabled' : ''}><span class="rank">${card.rank}</span><span class="label">${card.suit.name}</span><span class="suit">${card.suit.symbol}</span></button>`).join('');
+  hand.innerHTML = state.hands[0].map((card) => `<button type="button" class="playing-card ${card.color} ${legal.includes(card.id) ? '' : 'illegal'}" data-card-id="${card.id}" ${state.turn !== 0 || !legal.includes(card.id) || state.finished ? 'disabled' : ''}><span class="rank">${card.rank}</span><span class="label">${card.suit.name}</span><span class="suit">${card.suit.symbol}</span></button>`).join('');
   hand.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => playCard(0, button.dataset.cardId)));
   const total = handValue(0);
   $('#hand-count').textContent = `${state.hands[0].length} carte${state.hands[0].length > 1 ? 's' : ''} · total ${total}`;
@@ -382,20 +380,4 @@ $('#new-game').addEventListener('click', startGame);
 $('#play-again').addEventListener('click', startGame);
 $('#claim-21').addEventListener('click', claimUnder21);
 $('#auto-win').addEventListener('click', claimAutomaticWin);
-const bestCardTrigger = $('#best-card-trigger');
-const toggleBestCard = () => {
-  state.showBestCard = !state.showBestCard;
-  render();
-};
-bestCardTrigger.addEventListener('dblclick', toggleBestCard);
-let lastTitleTap = 0;
-bestCardTrigger.addEventListener('touchend', () => {
-  const now = Date.now();
-  if (now - lastTitleTap < 350) {
-    toggleBestCard();
-    lastTitleTap = 0;
-    return;
-  }
-  lastTitleTap = now;
-});
 startGame();
