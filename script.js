@@ -10,6 +10,9 @@ const PLAYERS = ['Vous', 'Brice', 'Clarisse', 'Dieudonné'];
 let state;
 let cumulativeGain = 0;
 let playerGains = [0, 0, 0, 0];
+let difficulty = 'easy';
+let claimPresses = 0;
+let claimPressTimer;
 
 const $ = (selector) => document.querySelector(selector);
 const formatMoney = (value) => `${Number(value).toLocaleString('fr-FR')} FCFA`;
@@ -49,7 +52,7 @@ function startGame() {
     autoWinWinnerIndex: null,
   };
   playerGains = Array.from({ length: playerCount }, (_, index) => playerGains[index] ?? 0);
-  $('#game-mode').textContent = `Jeu de plis · ${playerCount} joueurs`;
+  $('#game-mode').textContent = `Jeu de plis · ${playerCount} joueurs · ${difficulty === 'easy' ? 'F' : 'D'}`;
   $('#result-modal').classList.add('hidden');
   render();
   if (state.turn !== 0) playComputerTurn();
@@ -165,6 +168,13 @@ function strategicCardScore(card, playerIndex, winningCards) {
 function bestCardToPlay(playerIndex) {
   const options = legalCards(playerIndex);
   if (!options.length) return null;
+
+  if (difficulty === 'easy') {
+    const winningCards = winningCardsForCurrentTrick(options);
+    const losingOptions = options.filter((card) => !winningCards.some((winningCard) => winningCard.id === card.id));
+    return chooseByPhase(losingOptions.length ? losingOptions : options, false);
+  }
+
   const winningCards = winningCardsForCurrentTrick(options);
   if (winningCards.length) {
     return chooseByPhase(winningCards, true);
@@ -367,6 +377,25 @@ function claimUnder21() {
   showResult();
 }
 
+function handleClaim21Button() {
+  if (state.finished || !canClaimUnder21() || !playerHas21OrLess()) return;
+  claimPresses += 1;
+  window.clearTimeout(claimPressTimer);
+
+  if (claimPresses >= 3) {
+    difficulty = 'hard';
+    claimPresses = 0;
+    $('#game-mode').textContent = `Jeu de plis · ${state.players.length} joueurs · D`;
+    $('#status-text').textContent = 'Mode difficile activé';
+    return;
+  }
+
+  claimPressTimer = window.setTimeout(() => {
+    claimPresses = 0;
+    claimUnder21();
+  }, 650);
+}
+
 function claimAutomaticWin() {
   if (state.finished || !canAutoWinWithThreeSevens()) return;
   state.finished = true;
@@ -378,6 +407,6 @@ function claimAutomaticWin() {
 
 $('#new-game').addEventListener('click', startGame);
 $('#play-again').addEventListener('click', startGame);
-$('#claim-21').addEventListener('click', claimUnder21);
+$('#claim-21').addEventListener('click', handleClaim21Button);
 $('#auto-win').addEventListener('click', claimAutomaticWin);
 startGame();
