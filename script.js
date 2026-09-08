@@ -84,7 +84,7 @@ function canClaimUnder21() {
 
 function hasThreeSevens(playerIndex) {
   const sevens = state.hands[playerIndex].filter((card) => card.rank === 7);
-  return sevens.length === 3 && new Set(sevens.map((card) => card.suit.symbol)).size === 3;
+  return sevens.length >= 3 && new Set(sevens.map((card) => card.suit.symbol)).size >= 3;
 }
 
 function canAutoWinWithThreeSevens() {
