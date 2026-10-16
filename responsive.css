@@ -1,0 +1,100 @@
+.stake-control select {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 700 14px Manrope, sans-serif;
+}
+
+.stake-control select:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+#difficulty {
+  width: 100%;
+}
+
+#player-count {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 800px) {
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: 18px;
+  }
+
+  .top-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    align-items: end;
+    flex-direction: unset;
+  }
+
+  .top-actions > .new-game-button {
+    width: 100%;
+  }
+
+  .stake-control {
+    min-width: 0;
+    letter-spacing: 0.08em;
+  }
+
+  .stake-control div {
+    min-width: 0;
+  }
+
+  .stake-control input {
+    max-width: 65%;
+  }
+}
+
+@media (max-width: 480px) {
+  .top-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 16px;
+    align-items: stretch;
+  }
+
+  .top-actions > .new-game-button {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .stake-control div {
+    min-height: 32px;
+  }
+
+  .player-caption {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+
+  .player-tools {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .hint {
+    flex-basis: 100%;
+  }
+
+  .hand {
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .playing-card {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+}

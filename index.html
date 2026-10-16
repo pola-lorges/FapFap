@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="responsive.css">
 </head>
 <body>
   <main class="app-shell">
@@ -29,6 +30,10 @@
         <label class="stake-control" for="player-count">
           <span>Joueurs</span>
           <div><select id="player-count"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option></select><b>joueurs</b></div>
+        </label>
+        <label class="stake-control" for="difficulty">
+          <span>Difficulté</span>
+          <div><select id="difficulty"><option value="easy" selected>Facile</option><option value="hard">Difficile</option></select></div>
         </label>
         <button class="new-game-button" id="new-game" type="button"><span aria-hidden="true">↻</span> Nouvelle manche</button>
       </div>
