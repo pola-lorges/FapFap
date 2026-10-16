@@ -6,11 +6,18 @@ const SUITS = [
   { symbol: '♠', name: 'Pique', color: 'black' }
 ];
 const PLAYERS = ['Vous', 'Brice', 'Clarisse', 'Dieudonné'];
+const TURN_TIME_LIMIT = 30_000;
+const ONBOARDING_STORAGE_KEY = 'fap-fap-onboarding-seen';
 
 let state;
 let cumulativeGain = 0;
 let playerGains = [0, 0, 0, 0];
 let difficulty = 'easy';
+let turnTimerInterval;
+let turnDeadline = 0;
+let timedTurnId = null;
+let onboardingOpen = false;
+let onboardingIndex = 0;
 
 const $ = (selector) => document.querySelector(selector);
 const formatMoney = (value) => `${Number(value).toLocaleString('fr-FR')} FCFA`;
@@ -30,6 +37,7 @@ function shuffle(cards) {
 }
 
 function startGame() {
+  clearTurnTimer();
   const deck = shuffle(createDeck());
   const playerCount = Math.min(4, Math.max(2, Number($('#player-count').value) || 4));
   const players = PLAYERS.slice(0, playerCount);
@@ -39,6 +47,8 @@ function startGame() {
     : (previousWinner - 1 + playerCount) % playerCount;
   state = {
     players,
+    activePlayers: players.map((_, index) => index),
+    initialPlayerCount: playerCount,
     hands: Array.from({ length: playerCount }, (_, index) => deck.slice(index * 5, index * 5 + 5)),
     leader: nextLeader,
     turn: nextLeader,
@@ -46,6 +56,9 @@ function startGame() {
     history: [],
     round: 1,
     finished: false,
+    playerForfeited: false,
+    excludedCardIds: [],
+    turnId: 0,
     autoWin: false,
     autoWinWinnerIndex: null,
   };
@@ -54,6 +67,50 @@ function startGame() {
   $('#result-modal').classList.add('hidden');
   render();
   if (state.turn !== 0) playComputerTurn();
+}
+
+function clearTurnTimer() {
+  window.clearInterval(turnTimerInterval);
+  turnTimerInterval = null;
+  turnDeadline = 0;
+  timedTurnId = null;
+}
+
+function updateTurnTimerDisplay(remaining) {
+  const seconds = Math.ceil(remaining / 1000);
+  $('#timer-countdown').textContent = String(seconds);
+  $('#timer-progress').style.width = `${Math.max(0, remaining / TURN_TIME_LIMIT * 100)}%`;
+  $('#turn-timer').classList.toggle('urgent', seconds <= 10);
+}
+
+function syncTurnTimer() {
+  const timer = $('#turn-timer');
+  const humanTurn = !state.finished
+    && !onboardingOpen
+    && state.activePlayers.includes(0)
+    && state.turn === 0
+    && state.trick.length < state.activePlayers.length;
+  timer.hidden = !humanTurn;
+  if (!humanTurn) {
+    clearTurnTimer();
+    return;
+  }
+  if (timedTurnId === state.turnId) return;
+
+  clearTurnTimer();
+  timedTurnId = state.turnId;
+  turnDeadline = Date.now() + TURN_TIME_LIMIT;
+  updateTurnTimerDisplay(TURN_TIME_LIMIT);
+  turnTimerInterval = window.setInterval(() => {
+    const remaining = Math.max(0, turnDeadline - Date.now());
+    updateTurnTimerDisplay(remaining);
+    if (remaining === 0) forfeitHumanTurn();
+  }, 200);
+}
+
+function nextActivePlayer(playerIndex) {
+  const currentPosition = state.activePlayers.indexOf(playerIndex);
+  return state.activePlayers[(currentPosition + 1) % state.activePlayers.length];
 }
 
 function legalCards(playerIndex) {
@@ -80,7 +137,8 @@ function playerHas21OrLess() {
 }
 
 function canClaimUnder21() {
-  return state.hands[0].length === 5 && playerHas21OrLess();
+  return state.activePlayers.includes(0) && state.turn === 0
+    && state.hands[0].length === 5 && playerHas21OrLess();
 }
 
 function hasThreeSevens(playerIndex) {
@@ -98,6 +156,7 @@ function playedCards() {
 
 function remainingCardsForSuit(suitSymbol) {
   const playedIds = new Set(playedCards().map((play) => play.card.id));
+  state.excludedCardIds.forEach((cardId) => playedIds.add(cardId));
   return createDeck().filter((card) => card.suit.symbol === suitSymbol && !playedIds.has(card.id));
 }
 
@@ -193,7 +252,7 @@ function bestCardToPlay(playerIndex) {
 }
 
 function findThreeSevenWinner() {
-  const winnerIndex = state.hands.findIndex((_, index) => hasThreeSevens(index));
+  const winnerIndex = state.activePlayers.find((index) => hasThreeSevens(index));
   return winnerIndex >= 0 ? winnerIndex : null;
 }
 
@@ -204,14 +263,17 @@ function winnerOf(trick) {
 }
 
 function playCard(playerIndex, cardId) {
-  if (state.finished || playerIndex !== state.turn) return;
+  if (state.finished || !state.activePlayers.includes(playerIndex) || playerIndex !== state.turn) return;
+  if (playerIndex === 0 && state.trick.length >= state.activePlayers.length) return;
+  if (playerIndex === 0) clearTurnTimer();
   const cardIndex = state.hands[playerIndex].findIndex((card) => card.id === cardId);
   if (cardIndex < 0 || !legalCards(playerIndex).some((card) => card.id === cardId)) return;
   const [card] = state.hands[playerIndex].splice(cardIndex, 1);
   state.trick.push({ playerIndex, card });
-  state.turn = (state.turn + 1) % state.players.length;
+  state.turn = nextActivePlayer(playerIndex);
+  state.turnId += 1;
   render();
-  if (state.trick.length === state.players.length) {
+  if (state.trick.length >= state.activePlayers.length) {
     window.setTimeout(resolveTrick, 700);
   } else if (state.turn !== 0) {
     window.setTimeout(playComputerTurn, 500);
@@ -223,9 +285,30 @@ function chooseComputerCard(playerIndex) {
 }
 
 function playComputerTurn() {
-  if (state.finished || state.turn === 0 || state.trick.length === state.players.length) return;
+  if (state.finished || !state.activePlayers.includes(state.turn) || state.turn === 0
+    || state.trick.length >= state.activePlayers.length) return;
   const card = chooseComputerCard(state.turn);
   playCard(state.turn, card.id);
+}
+
+function forfeitHumanTurn() {
+  if (state.finished || state.turn !== 0 || !state.activePlayers.includes(0)) return;
+  clearTurnTimer();
+  const currentPosition = state.activePlayers.indexOf(0);
+  const nextTurn = state.activePlayers[(currentPosition + 1) % state.activePlayers.length];
+  if (!state.trick.length) state.leader = nextTurn;
+  state.activePlayers = state.activePlayers.filter((playerIndex) => playerIndex !== 0);
+  state.playerForfeited = true;
+  state.excludedCardIds = state.hands[0].map((card) => card.id);
+  state.hands[0] = [];
+  state.turn = nextTurn;
+  state.turnId += 1;
+  render();
+  if (state.trick.length >= state.activePlayers.length) {
+    window.setTimeout(resolveTrick, 700);
+  } else {
+    window.setTimeout(playComputerTurn, 500);
+  }
 }
 
 function resolveTrick() {
@@ -234,6 +317,7 @@ function resolveTrick() {
   state.history.push(completed);
   state.leader = winner.playerIndex;
   state.turn = winner.playerIndex;
+  state.turnId += 1;
   state.trick = [];
   if (state.history.length === 5) {
     state.finished = true;
@@ -253,17 +337,19 @@ function renderHand() {
   const hand = $('#player-hand');
   const legalCardsForPlayer = legalCards(0);
   const legal = legalCardsForPlayer.map((card) => card.id);
-  hand.innerHTML = state.hands[0].map((card) => `<button type="button" class="playing-card ${card.color} ${legal.includes(card.id) ? '' : 'illegal'}" data-card-id="${card.id}" ${state.turn !== 0 || !legal.includes(card.id) || state.finished ? 'disabled' : ''}><span class="rank">${card.rank}</span><span class="label">${card.suit.name}</span><span class="suit">${card.suit.symbol}</span></button>`).join('');
+  hand.innerHTML = state.hands[0].map((card) => `<button type="button" class="playing-card ${card.color} ${legal.includes(card.id) ? '' : 'illegal'}" data-card-id="${card.id}" ${!state.activePlayers.includes(0) || state.turn !== 0 || state.trick.length >= state.activePlayers.length || !legal.includes(card.id) || state.finished ? 'disabled' : ''}><span class="rank">${card.rank}</span><span class="label">${card.suit.name}</span><span class="suit">${card.suit.symbol}</span></button>`).join('');
   hand.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => playCard(0, button.dataset.cardId)));
   const total = handValue(0);
-  $('#hand-count').textContent = `${state.hands[0].length} carte${state.hands[0].length > 1 ? 's' : ''} · total ${total}`;
+  $('#hand-count').textContent = state.playerForfeited
+    ? 'Éliminé · délai dépassé'
+    : `${state.hands[0].length} carte${state.hands[0].length > 1 ? 's' : ''} · total ${total}`;
   const claimButton = $('#claim-21');
   const autoWinButton = $('#auto-win');
   const canClaim = canClaimUnder21();
   const canAutoWin = canAutoWinWithThreeSevens();
-  claimButton.disabled = state.finished || !canClaim;
+  claimButton.disabled = state.finished || state.turn !== 0 || !state.activePlayers.includes(0) || !canClaim;
   claimButton.title = canClaim ? `Votre main vaut ${total} points` : 'L’annonce ≤ 21 n’est possible que si chaque joueur a 5 cartes en main.';
-  autoWinButton.disabled = state.finished || !canAutoWin;
+  autoWinButton.disabled = state.finished || state.turn !== 0 || !state.activePlayers.includes(0) || !canAutoWin;
   autoWinButton.title = canAutoWin ? '3 cartes 7 différentes : victoire automatique' : 'Il faut avoir exactement 3 cartes 7 de couleurs différentes dans votre main.';
 }
 
@@ -306,11 +392,20 @@ function render() {
   renderOpponents();
   renderTrick();
   renderScore();
-  const isPlayerTurn = state.turn === 0;
-  $('#status-text').textContent = state.finished ? 'Manche terminée' : (isPlayerTurn ? 'À vous de jouer' : `${state.players[state.turn]} joue`);
-  $('#hint-text').textContent = state.finished ? 'Résultat de la manche' : (isPlayerTurn ? (state.trick.length ? `Suivez ${state.trick[0].card.suit.symbol} si possible` : 'Choisissez une carte') : 'Les adversaires réfléchissent…');
+  const isPlayerTurn = state.turn === 0 && state.activePlayers.includes(0);
+  const trickComplete = state.trick.length >= state.activePlayers.length;
+  $('#status-text').textContent = state.finished ? 'Manche terminée'
+    : trickComplete ? 'Pli terminé'
+      : state.playerForfeited ? 'Éliminé · délai dépassé'
+        : isPlayerTurn ? 'À vous de jouer' : `${state.players[state.turn]} joue`;
+  $('#hint-text').textContent = state.finished ? 'Résultat de la manche'
+    : state.playerForfeited ? 'Les adversaires continuent la partie'
+      : trickComplete ? 'Le pli est en cours de résolution'
+        : isPlayerTurn ? (state.trick.length ? `Suivez ${state.trick[0].card.suit.symbol} si possible` : 'Choisissez une carte')
+          : 'Les adversaires réfléchissent…';
   $('#cumulative-gain').textContent = formatSignedMoney(cumulativeGain);
   $('#cumulative-gain').classList.toggle('negative', cumulativeGain < 0);
+  syncTurnTimer();
 }
 
 function formatSignedMoney(value) {
@@ -331,6 +426,7 @@ function updatePlayerGains(winnerIndex, stake, winMultiplier, lossMultiplier, op
 }
 
 function showResult() {
+  clearTurnTimer();
   const last = state.history.at(-1);
   const previous = state.history.at(-2);
   const autoWin = state.autoWin;
@@ -338,7 +434,7 @@ function showResult() {
   const wonByThree = !autoWin && last.card.rank === 3;
   const multiplier = autoWin ? 1 : wonByThree && previous?.card.rank === 3 ? 4 : wonByThree ? 2 : 1;
   const lossMultiplier = wonByThree ? 2 : 1;
-  const opponentCount = state.players.length - 1;
+  const opponentCount = state.initialPlayerCount - 1;
   const stake = Math.max(0, Number($('#stake').value) || 0);
   const won = winnerIndex === 0;
   const payout = autoWin
@@ -346,6 +442,7 @@ function showResult() {
     : (won ? stake * multiplier * opponentCount : -stake * lossMultiplier);
   cumulativeGain += payout;
   updatePlayerGains(winnerIndex, stake, multiplier, lossMultiplier, opponentCount);
+  renderScore();
 
   if (autoWin) {
     $('#result-title').textContent = `${state.players[winnerIndex]} gagne automatiquement`;
@@ -355,6 +452,9 @@ function showResult() {
   } else {
     $('#result-title').textContent = last.playerIndex === 0 ? 'Vous remportez le dernier pli' : `${state.players[last.playerIndex]} prend le dernier pli`;
     $('#result-copy').textContent = `${won ? 'Victoire' : 'Défaite'} : le ${cardLabel(last.card)} ferme la manche. ${last.card.rank === 3 ? (won ? `Le 3 active un multiplicateur ×${multiplier}.` : 'Le 3 double la perte.') : 'Le multiplicateur reste à ×1.'}${won ? ` Gain multiplié par ${opponentCount} adversaires.` : ''}`;
+  }
+  if (state.playerForfeited) {
+    $('#result-copy').textContent += ' Vous avez perdu par dépassement du délai, mais les adversaires ont terminé la partie.';
   }
 
   $('#payout-value').textContent = formatSignedMoney(payout);
@@ -367,7 +467,7 @@ function showResult() {
 }
 
 function claimUnder21() {
-  if (state.finished || !canClaimUnder21() || !playerHas21OrLess()) return;
+  if (state.finished || state.turn !== 0 || !state.activePlayers.includes(0) || !canClaimUnder21() || !playerHas21OrLess()) return;
   state.finished = true;
   state.autoWin = true;
   state.autoWinWinnerIndex = 0;
@@ -376,12 +476,60 @@ function claimUnder21() {
 }
 
 function claimAutomaticWin() {
-  if (state.finished || !canAutoWinWithThreeSevens()) return;
+  if (state.finished || state.turn !== 0 || !state.activePlayers.includes(0) || !canAutoWinWithThreeSevens()) return;
   state.finished = true;
   state.autoWin = true;
   state.autoWinWinnerIndex = 0;
   render();
   showResult();
+}
+
+function renderOnboardingPage() {
+  const pages = [...document.querySelectorAll('.onboarding-page')];
+  pages.forEach((page, index) => {
+    page.hidden = index !== onboardingIndex;
+    page.classList.toggle('active', index === onboardingIndex);
+  });
+  document.querySelectorAll('.onboarding-progress i').forEach((step, index) => {
+    step.classList.toggle('current', index === onboardingIndex);
+    step.classList.toggle('passed', index < onboardingIndex);
+  });
+  $('#onboarding-step-label').textContent = `GUIDE DU JOUEUR · 0${onboardingIndex + 1} / 03`;
+  $('#onboarding').setAttribute('aria-labelledby', `onboarding-title-${onboardingIndex}`);
+  $('#onboarding').setAttribute('aria-describedby', `onboarding-copy-${onboardingIndex}`);
+  $('#onboarding-back').disabled = onboardingIndex === 0;
+  $('#onboarding-next').innerHTML = onboardingIndex === pages.length - 1
+    ? 'Commencer <span aria-hidden="true">→</span>'
+    : 'Suivant <span aria-hidden="true">→</span>';
+}
+
+function openOnboarding() {
+  onboardingIndex = 0;
+  onboardingOpen = true;
+  clearTurnTimer();
+  $('#turn-timer').hidden = true;
+  renderOnboardingPage();
+  $('#onboarding').classList.remove('hidden');
+  document.body.classList.add('onboarding-open');
+  $('#onboarding-title-0').focus();
+}
+
+function closeOnboarding() {
+  onboardingOpen = false;
+  $('#onboarding').classList.add('hidden');
+  document.body.classList.remove('onboarding-open');
+  window.localStorage.setItem(ONBOARDING_STORAGE_KEY, 'seen');
+  render();
+  $('#open-guide').focus();
+}
+
+function moveOnboarding(direction) {
+  const pages = document.querySelectorAll('.onboarding-page');
+  const nextIndex = onboardingIndex + direction;
+  if (nextIndex < 0 || nextIndex >= pages.length) return;
+  onboardingIndex = nextIndex;
+  renderOnboardingPage();
+  $(`#onboarding-title-${onboardingIndex}`).focus();
 }
 
 $('#new-game').addEventListener('click', startGame);
@@ -392,4 +540,34 @@ $('#difficulty').addEventListener('change', (event) => {
 });
 $('#claim-21').addEventListener('click', claimUnder21);
 $('#auto-win').addEventListener('click', claimAutomaticWin);
+$('#open-guide').addEventListener('click', openOnboarding);
+$('#onboarding-close').addEventListener('click', closeOnboarding);
+$('#onboarding-skip').addEventListener('click', closeOnboarding);
+$('#onboarding-back').addEventListener('click', () => moveOnboarding(-1));
+$('#onboarding-next').addEventListener('click', () => {
+  if (onboardingIndex === document.querySelectorAll('.onboarding-page').length - 1) {
+    closeOnboarding();
+  } else {
+    moveOnboarding(1);
+  }
+});
+$('#onboarding').addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeOnboarding();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...$('#onboarding').querySelectorAll('button:not(:disabled)')]
+    .filter((element) => !element.closest('[hidden]'));
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 startGame();
+if (window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== 'seen') openOnboarding();
